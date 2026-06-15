@@ -1,23 +1,23 @@
 import os
 import telebot
-import google.generativeai as genai
+import anthropic
 from telebot.types import Message
 import base64
 import httpx
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_TOKEN not found")
-if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY not found")
+if not ANTHROPIC_API_KEY:
+    raise ValueError("ANTHROPIC_API_KEY not found")
 
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel(
-    model_name="gemini-2.0-flash",
-    system_instruction="""Ти — асистент ювелірного магазину MINIMAL. 
-Допомагаєш продавцям правильно вирішувати ситуації з гарантійними випадками та поверненнями.
+bot = telebot.TeleBot(TELEGRAM_TOKEN)
+client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+user_contexts = {}
+
+SYSTEM_PROMPT = """Ти — асистент ювелірного магазину MINIMAL. Допомагаєш продавцям правильно вирішувати ситуації з гарантійними випадками та поверненнями.
 
 ПРАВИЛА ГАРАНТІЇ:
 - Гарантія діє 6 місяців з дати покупки
@@ -37,43 +37,43 @@ model = genai.GenerativeModel(
 4. Якщо потрібні додаткові документи — вкажи які
 
 Відповідай коротко, по справі, українською мовою."""
-)
 
-user_chats = {}
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
+def get_user_context(user_id):
+    if user_id not in user_contexts:
+        user_contexts[user_id] = []
+    return user_contexts[user_id]
 
-def get_user_chat(user_id):
-    if user_id not in user_chats:
-        user_chats[user_id] = model.start_chat(history=[])
-    return user_chats[user_id]
+def add_to_context(user_id, role, content):
+    user_contexts[user_id].append({"role": role, "content": content})
+    if len(user_contexts[user_id]) > 10:
+        user_contexts[user_id] = user_contexts[user_id][-10:]
 
 @bot.message_handler(commands=["start"])
 def handle_start(message: Message):
-    text = (
-        "👋 Привіт! Я асистент магазину MINIMAL.\n\n"
-        "Допомагаю вирішувати ситуації з:\n"
-        "🔹 Гарантійними випадками\n"
-        "🔹 Поверненнями\n"
-        "🔹 Аналізом фото виробів\n\n"
-        "Просто опиши ситуацію або надішли фото прикраси.\n\n"
-        "📌 /new — почати нову розмову"
-    )
+    text = ("👋 Привіт! Я асистент магазину MINIMAL.\n\nДопомагаю вирішувати ситуації з:\n🔹 Гарантійними випадками\n🔹 Поверненнями\n🔹 Аналізом фото виробів\n\nПросто опиши ситуацію або надішли фото прикраси.\n\n📌 /new — почати нову розмову")
     bot.send_message(message.chat.id, text)
 
 @bot.message_handler(commands=["new"])
 def handle_new(message: Message):
     user_id = message.from_user.id
-    user_chats[user_id] = model.start_chat(history=[])
+    user_contexts[user_id] = []
     bot.send_message(message.chat.id, "✅ Новий діалог розпочато. Опишіть ситуацію.")
 
 @bot.message_handler(content_types=["text"])
 def handle_text(message: Message):
     user_id = message.from_user.id
     bot.send_chat_action(message.chat.id, "typing")
+    add_to_context(user_id, "user", message.text)
     try:
-        chat = get_user_chat(user_id)
-        response = chat.send_message(message.text)
-        bot.send_message(message.chat.id, response.text)
+        response = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=1024,
+            system=SYSTEM_PROMPT,
+            messages=get_user_context(user_id),
+        )
+        reply = response.content[0].text
+        add_to_context(user_id, "assistant", reply)
+        bot.send_message(message.chat.id, reply)
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Помилка: {str(e)}")
 
@@ -86,14 +86,22 @@ def handle_photo(message: Message):
         file_info = bot.get_file(file_id)
         file_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_info.file_path}"
         image_data = httpx.get(file_url).content
+        image_base64 = base64.standard_b64encode(image_data).decode("utf-8")
         caption = message.caption or "Проаналізуй цей виріб. Опиши стан, видимі дефекти, сліди носіння."
-        image_part = {
-            "mime_type": "image/jpeg",
-            "data": base64.b64encode(image_data).decode("utf-8")
-        }
-        chat = get_user_chat(user_id)
-        response = chat.send_message([caption, image_part])
-        bot.send_message(message.chat.id, response.text)
+        content = [
+            {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": image_base64}},
+            {"type": "text", "text": caption},
+        ]
+        add_to_context(user_id, "user", content)
+        response = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=1024,
+            system=SYSTEM_PROMPT,
+            messages=get_user_context(user_id),
+        )
+        reply = response.content[0].text
+        add_to_context(user_id, "assistant", reply)
+        bot.send_message(message.chat.id, reply)
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Помилка при обробці фото: {str(e)}")
 
