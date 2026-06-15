@@ -15,7 +15,7 @@ if not GEMINI_API_KEY:
 
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash",
+    model_name="gemini-2.0-flash",
     system_instruction="""Ти — асистент ювелірного магазину MINIMAL. 
 Допомагаєш продавцям правильно вирішувати ситуації з гарантійними випадками та поверненнями.
 
