@@ -44,6 +44,8 @@ def get_user_context(user_id):
     return user_contexts[user_id]
 
 def add_to_context(user_id, role, content):
+    if user_id not in user_contexts:
+        user_contexts[user_id] = []
     user_contexts[user_id].append({"role": role, "content": content})
     if len(user_contexts[user_id]) > 10:
         user_contexts[user_id] = user_contexts[user_id][-10:]
