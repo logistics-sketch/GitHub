@@ -380,28 +380,237 @@ def add_to_context(user_id, role, content):
         user_contexts[user_id] = user_contexts[user_id][-10:]
 
 
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+
+
+def main_menu():
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add(
+        KeyboardButton("🔴 Виключення / Обмін"),
+        KeyboardButton("🔄 Обмін до 14 днів"),
+        KeyboardButton("🟢 Гарантійний випадок"),
+        KeyboardButton("🔧 Ремонт і вартість послуг"),
+        KeyboardButton("⚙️ Послуги (нитка, розмір, чистка)"),
+        KeyboardButton("💬 Інші звернення"),
+    )
+    return markup
+
+
 @bot.message_handler(commands=["start"])
 def handle_start(message: Message):
     text = (
         "👋 Привіт! Я сервісний асистент MINIMAL.\n\n"
-        "Надішли фото виробу або опиши ситуацію — визначу рішення.\n\n"
-        "Можу допомогти з:\n"
-        "🔴 Виведеними позиціями → обмін\n"
-        "🔄 Обміном до 14 днів\n"
-        "🟢 Гарантійними випадками (18 міс)\n"
-        "🔧 Платним ремонтом і вартістю послуг\n"
-        "💰 Різницею в ціні (компенсація до 5000 грн)\n"
-        "📸 Аналізом фото виробу\n\n"
-        "📌 /new — почати нову розмову"
+        "Обери тип звернення або надішли фото виробу 👇"
     )
-    bot.send_message(message.chat.id, text)
+    bot.send_message(message.chat.id, text, reply_markup=main_menu())
 
 
 @bot.message_handler(commands=["new"])
 def handle_new(message: Message):
     user_id = message.from_user.id
     user_contexts[user_id] = []
-    bot.send_message(message.chat.id, "✅ Новий діалог розпочато. Надішли фото або опиши ситуацію.")
+    bot.send_message(
+        message.chat.id,
+        "✅ Новий діалог розпочато. Обери тип звернення або надішли фото 👇",
+        reply_markup=main_menu()
+    )
+
+
+@bot.message_handler(func=lambda m: m.text == "🔴 Виключення / Обмін")
+def handle_exclusion(message: Message):
+    user_id = message.from_user.id
+    user_contexts[user_id] = []
+    add_to_context(user_id, "user", "Клієнт звертається по виробу з можливого переліку виключень або виведених позицій. Напиши назву, артикул або код виробу — або надішли фото.")
+    response = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=1500,
+        system=SYSTEM_PROMPT,
+        messages=get_user_context(user_id),
+    )
+    reply = response.content[0].text
+    add_to_context(user_id, "assistant", reply)
+    bot.send_message(message.chat.id, reply)
+
+
+@bot.message_handler(func=lambda m: m.text == "🔄 Обмін до 14 днів")
+def handle_14days(message: Message):
+    user_id = message.from_user.id
+    user_contexts[user_id] = []
+    add_to_context(user_id, "user", "Клієнт хоче обмін або повернення в межах 14 днів. Допоможи визначити рішення. Запитай одне питання: стан виробу і є бірка?")
+    response = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=1500,
+        system=SYSTEM_PROMPT,
+        messages=get_user_context(user_id),
+    )
+    reply = response.content[0].text
+    add_to_context(user_id, "assistant", reply)
+    bot.send_message(message.chat.id, reply)
+
+
+@bot.message_handler(func=lambda m: m.text == "🟢 Гарантійний випадок")
+def handle_warranty(message: Message):
+    user_id = message.from_user.id
+    user_contexts[user_id] = []
+    add_to_context(user_id, "user", "Клієнт звертається з можливим гарантійним випадком. Запитай одне питання: коли куплено виріб і що сталось?")
+    response = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=1500,
+        system=SYSTEM_PROMPT,
+        messages=get_user_context(user_id),
+    )
+    reply = response.content[0].text
+    add_to_context(user_id, "assistant", reply)
+    bot.send_message(message.chat.id, reply)
+
+
+@bot.message_handler(func=lambda m: m.text == "🔧 Ремонт і вартість послуг")
+def handle_repair(message: Message):
+    user_id = message.from_user.id
+    user_contexts[user_id] = []
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add(
+        KeyboardButton("💠 Пайка"),
+        KeyboardButton("✨ Позолочення / Родіювання"),
+        KeyboardButton("💎 Закріплення каменю"),
+        KeyboardButton("🔒 Заміна замка"),
+        KeyboardButton("📐 Зміна розміру каблучки"),
+        KeyboardButton("💅 Полірування / Вирівнювання"),
+        KeyboardButton("🔙 Головне меню"),
+    )
+    bot.send_message(
+        message.chat.id,
+        "🔧 Який вид ремонту або послуги потрібен?\n\nОбери або опиши:",
+        reply_markup=markup
+    )
+
+
+@bot.message_handler(func=lambda m: m.text in [
+    "💠 Пайка", "✨ Позолочення / Родіювання",
+    "💎 Закріплення каменю", "🔒 Заміна замка",
+    "📐 Зміна розміру каблучки", "💅 Полірування / Вирівнювання"
+])
+def handle_repair_type(message: Message):
+    user_id = message.from_user.id
+    user_contexts[user_id] = []
+    service_map = {
+        "💠 Пайка": "Клієнт хоче дізнатись вартість пайки. Запитай матеріал виробу (срібло/позолота/жовте золото/біле золото). Якщо позолота або біле золото — запитай вагу.",
+        "✨ Позолочення / Родіювання": "Клієнт хоче дізнатись вартість позолочення або родіювання. Запитай матеріал і вагу виробу в грамах.",
+        "💎 Закріплення каменю": "Клієнт хоче закріпити камінь. Запитай: камінь присутній чи втрачений? Який тип каменю?",
+        "🔒 Заміна замка": "Клієнт хоче замінити замок. Запитай матеріал виробу (срібло або золото).",
+        "📐 Зміна розміру каблучки": "Клієнт хоче змінити розмір каблучки. Запитай: яка конструкція — проста або є паве/доріжка/орнамент? Який матеріал?",
+        "💅 Полірування / Вирівнювання": "Клієнт хоче полірування або вирівнювання. Дай вартість: полірування 200 грн, вирівнювання 150 грн, термін 7-14 р.д.",
+    }
+    prompt = service_map.get(message.text, "Клієнт питає про вартість послуги ремонту.")
+    add_to_context(user_id, "user", prompt)
+    response = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=1500,
+        system=SYSTEM_PROMPT,
+        messages=get_user_context(user_id),
+    )
+    reply = response.content[0].text
+    add_to_context(user_id, "assistant", reply)
+    bot.send_message(message.chat.id, reply, reply_markup=main_menu())
+
+
+@bot.message_handler(func=lambda m: m.text == "⚙️ Послуги (нитка, розмір, чистка)")
+def handle_services(message: Message):
+    user_id = message.from_user.id
+    user_contexts[user_id] = []
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add(
+        KeyboardButton("🧵 Заміна нитки в браслеті"),
+        KeyboardButton("🔊 Чищення ультразвуком"),
+        KeyboardButton("📐 Збільшити / Зменшити розмір"),
+        KeyboardButton("🚫 Що неможливо зробити"),
+        KeyboardButton("🔙 Головне меню"),
+    )
+    bot.send_message(
+        message.chat.id,
+        "⚙️ Оберіть послугу:",
+        reply_markup=markup
+    )
+
+
+@bot.message_handler(func=lambda m: m.text in [
+    "🧵 Заміна нитки в браслеті", "🔊 Чищення ультразвуком",
+    "📐 Збільшити / Зменшити розмір", "🚫 Що неможливо зробити"
+])
+def handle_service_type(message: Message):
+    user_id = message.from_user.id
+    user_contexts[user_id] = []
+    service_map = {
+        "🧵 Заміна нитки в браслеті": "Клієнт питає про заміну нитки в браслеті. Дай повну відповідь: заміна безкоштовна тільки для браслетів з вузликовим типом закриття. Якщо є металева срібна застібка — послуга НЕ проводиться.",
+        "🔊 Чищення ультразвуком": "Клієнт питає про чищення ультразвуком. Дай відповідь: чищення безкоштовне, кожні 3-6 міс. НЕ для перлин і бірюзи.",
+        "📐 Збільшити / Зменшити розмір": "Клієнт хоче змінити розмір каблучки. Запитай: яка конструкція — проста каблучка або є паве/доріжка/орнамент? Який матеріал (срібло/золото)?",
+        "🚫 Що неможливо зробити": "Перерахуй все що неможливо зробити: зміна розміру каблучки з паве/доріжками, вкорочення підвіски до чокера, індивідуальний елемент, чистка силіконової нитки, розділити подвійний виріб, скло/ремінець годинника.",
+    }
+    prompt = service_map.get(message.text, "")
+    add_to_context(user_id, "user", prompt)
+    response = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=1500,
+        system=SYSTEM_PROMPT,
+        messages=get_user_context(user_id),
+    )
+    reply = response.content[0].text
+    add_to_context(user_id, "assistant", reply)
+    bot.send_message(message.chat.id, reply, reply_markup=main_menu())
+
+
+@bot.message_handler(func=lambda m: m.text == "💬 Інші звернення")
+def handle_other(message: Message):
+    user_id = message.from_user.id
+    user_contexts[user_id] = []
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add(
+        KeyboardButton("💰 Різниця в ціні"),
+        KeyboardButton("📋 Не та характеристика / опис"),
+        KeyboardButton("😤 Незадоволений клієнт"),
+        KeyboardButton("📣 Скарга на сервіс"),
+        KeyboardButton("🔙 Головне меню"),
+    )
+    bot.send_message(
+        message.chat.id,
+        "💬 Оберіть тип звернення:",
+        reply_markup=markup
+    )
+
+
+@bot.message_handler(func=lambda m: m.text in [
+    "💰 Різниця в ціні", "📋 Не та характеристика / опис",
+    "😤 Незадоволений клієнт", "📣 Скарга на сервіс"
+])
+def handle_other_type(message: Message):
+    user_id = message.from_user.id
+    user_contexts[user_id] = []
+    service_map = {
+        "💰 Різниця в ціні": "Клієнт помітив що після покупки ціна знизилась і хоче компенсацію. Дай рішення: компенсація різниці сертифікатом до 5000 грн якщо в межах 14 днів. Якщо більше 5000 грн — передати керівнику.",
+        "📋 Не та характеристика / опис": "Клієнт каже що отриманий товар не відповідає опису або фото на сайті. Це підстава для обміну до 14 днів. Запитай: в чому саме розбіжність?",
+        "😤 Незадоволений клієнт": "Клієнт незадоволений і можливо кричить або скандалить. Надай скрипт: вислухати повністю, не сперечатись, визнати почуття, запропонувати рішення. Якщо наполягає — CAR і керівник.",
+        "📣 Скарга на сервіс": "Клієнт скаржиться на якість обслуговування. Дай рішення: вислухати, вибачитись, сертифікат 500 грн якщо підтверджена помилка, зареєструвати CAR.",
+    }
+    prompt = service_map.get(message.text, "")
+    add_to_context(user_id, "user", prompt)
+    response = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=1500,
+        system=SYSTEM_PROMPT,
+        messages=get_user_context(user_id),
+    )
+    reply = response.content[0].text
+    add_to_context(user_id, "assistant", reply)
+    bot.send_message(message.chat.id, reply, reply_markup=main_menu())
+
+
+@bot.message_handler(func=lambda m: m.text == "🔙 Головне меню")
+def handle_back(message: Message):
+    bot.send_message(
+        message.chat.id,
+        "Головне меню 👇",
+        reply_markup=main_menu()
+    )
 
 
 @bot.message_handler(content_types=["text"])
