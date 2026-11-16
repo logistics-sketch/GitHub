@@ -17,6 +17,9 @@ bot = telebot.TeleBot(TELEGRAM_TOKEN)
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 user_contexts = {}
 
+from exchange_reminders import start_exchange_reminders
+start_exchange_reminders(bot)
+
 SYSTEM_PROMPT = """Ти — сервісний асистент для продавців ювелірного бренду MINIMAL.
 Відповідаєш ТІЛЬКИ по темах сервісу MINIMAL. Якщо питання не по темі — «Можу допомогти тільки з сервісними питаннями MINIMAL 💛»
 
